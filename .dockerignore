@@ -1,0 +1,15 @@
+**
+!Dockerfile
+!container/
+!container/run.py
+!backend/
+!backend/pom.xml
+!backend/src/
+!backend/src/**
+!ai-service/
+!ai-service/requirements.txt
+!ai-service/app/
+!ai-service/app/**
+**/__pycache__
+**/*.pyc
+

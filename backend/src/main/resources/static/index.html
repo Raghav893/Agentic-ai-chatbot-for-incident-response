@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1b2924">
+  <title>ThreatGuard</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar" id="sidebar" aria-label="Chat history">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>ThreatGuard</span>
+    </div>
+    <button type="button" id="new-chat" class="new-chat"><span aria-hidden="true">+</span> New chat</button>
+    <div class="chat-list">
+      <h2>Conversations</h2>
+      <ul id="chats"></ul>
+    </div>
+    <a class="api-link" href="/swagger-ui/index.html">API documentation <span aria-hidden="true">↗</span></a>
+  </aside>
+
+  <main>
+    <header class="topbar">
+      <div class="topbar-content">
+        <button type="button" class="history-toggle" id="history-toggle" aria-controls="sidebar" aria-expanded="false">Chats</button>
+        <h2 id="active-title">New conversation</h2>
+        <button type="button" id="delete-chat" class="delete-chat" hidden>Delete chat</button>
+      </div>
+    </header>
+
+    <div class="workspace" id="workspace">
+      <section class="welcome" id="welcome">
+        <span class="welcome-mark brand-mark" aria-hidden="true"></span>
+        <h1>Something look suspicious?</h1>
+        <p>Check an email, message, or URL for signs of phishing and get next steps.</p>
+        <div class="examples">
+          <button type="button" data-example="email">Try a phishing email <span aria-hidden="true">↗</span></button>
+          <button type="button" data-example="url">Check a sample URL <span aria-hidden="true">↗</span></button>
+        </div>
+      </section>
+      <section class="messages" id="messages" aria-label="Conversation messages" hidden></section>
+    </div>
+
+    <div class="compose-area">
+      <form class="composer" id="composer">
+        <label class="sr-only" for="draft">Message to analyze</label>
+        <textarea id="draft" rows="2" maxlength="8000" placeholder="Paste a suspicious message or URL…" required></textarea>
+        <div class="compose-actions">
+          <span>Shift + Enter for a new line</span>
+          <button type="submit" id="send">Send <span aria-hidden="true">↑</span></button>
+        </div>
+      </form>
+      <p id="status" class="status" role="status" hidden></p>
+    </div>
+  </main>
+</body>
+</html>

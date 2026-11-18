@@ -1,5 +1,52 @@
 # ThreatGuard AI --- Agentic AI Incident Response Chatbot
 
+## Run ThreatGuard locally
+
+One Docker container runs the chat page, Spring Boot, FastAPI, and PostgreSQL. Spring Boot serves the page and stores conversations and analysis in PostgreSQL. FastAPI runs defensive phishing and URL triage with the [`deepseek-flash` API model](https://api-docs.deepseek.com/api/list-models/).
+
+With Docker Desktop running, copy the example environment file.
+
+```powershell
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
+```
+
+Set `DEEPSEEK_API_KEY` in `.env`. Set `VIRUSTOTAL_API_KEY` if you want to include existing URL reputation reports in the analysis. Then start the services.
+
+```powershell
+docker compose up --build --wait
+```
+
+Open [ThreatGuard](http://127.0.0.1:8080/) to start a conversation or open a saved chat. You can try a sample email or URL, review the assessment, and expand its evidence and next steps. The chat and its API run on port `8080`. FastAPI's test interface runs on port `8000`. Both ports are bound to localhost. PostgreSQL listens inside the container on port `5432`.
+
+For an existing install from the earlier three-container setup, run `docker compose down --remove-orphans` before starting the new container. This stops the old services and retains the database volume for the new container. After editing `.env`, run `docker compose up -d` to reload it.
+
+Open [Spring Boot Swagger UI](http://127.0.0.1:8080/swagger-ui/index.html) to test the chat API or [FastAPI Swagger UI](http://127.0.0.1:8000/docs) to test analysis directly.
+
+Each chat has independent persisted history and bounded context. Message analysis sends the submitted content and relevant context to DeepSeek. VirusTotal lookups use its existing reports API and submitted links are never opened by the application.
+
+```powershell
+$api = 'http://127.0.0.1:8080/api'
+$chat = Invoke-RestMethod -Method Post -Uri "$api/chats" -ContentType 'application/json' -Body (@{ title = 'Phishing triage' } | ConvertTo-Json)
+$result = Invoke-RestMethod -Method Post -Uri "$api/chats/$($chat.id)/messages" -ContentType 'application/json' -Body (@{ content = 'I received an urgent email asking me to verify my password. Is it phishing?' } | ConvertTo-Json)
+$result.analysis
+```
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Check that Spring Boot is responding |
+| `GET`, `POST` | `/api/chats` | List or create chats |
+| `GET`, `DELETE` | `/api/chats/{chatId}` | Retrieve or delete a chat |
+| `GET`, `POST` | `/api/chats/{chatId}/messages` | Read history or send a message for analysis |
+| `GET` | `/api/incidents/{id}` | Read a recorded incident |
+
+The message response includes `user_message`, `assistant_message`, `analysis`, and `incident` when an incident is detected. Send an optional UUID in the `Idempotency-Key` header and reuse it with the same message to retry before posting a newer turn, or to retrieve an already completed response. Both list endpoints accept `limit` and `offset`.
+
+FastAPI exposes `POST /ai/analyze-url` with `{"url":"https://example.com"}` and `POST /ai/analyze-email` with `{"content":"..."}`. `docker compose down` stops the services and retains the PostgreSQL data volume.
+
+---
+
+## Original full-project design
+
 > **ThreatGuard AI** is an MVP conversational security assistant that
 > helps users investigate suspicious URLs, emails, and messages. It uses
 > an AI agent with controlled tool calling, conversation-level context

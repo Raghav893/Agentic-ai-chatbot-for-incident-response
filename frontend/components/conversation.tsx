@@ -19,6 +19,7 @@ export function hasVirusTotalReport(message: ChatMessage) {
 }
 
 function verdict(analysis: Analysis) {
+  if (!analysis.incident_detected) return null;
   const reports = analysis.virustotal_reports ?? [];
   const flagged = reports.some((report) => report.status === "report_found" && report.malicious + report.suspicious > 0);
   const isEmail = analysis.incident_type === "PHISHING" || analysis.incident_type === "SUSPICIOUS_EMAIL";
@@ -79,20 +80,22 @@ function MessageBubble({ message, reportSelected, onShowReport }: {
 }) {
   const isUser = message.role === "USER";
   const analysis = isUser ? null : message.analysis;
-  const risk = analysis?.risk_level;
+  const isThreat = analysis?.incident_detected === true && analysis.incident_type !== "UNKNOWN";
+  const risk = isThreat ? analysis.risk_level : undefined;
 
   return (
     <article className="vbg-custom-message" data-role={isUser ? "user" : "assistant"}>
       <span className="vbg-label vbg-custom-speaker">{isUser ? "You" : "Antinious"}</span>
-      <div className="vbg-custom-response" data-risk={risk}>
-        {analysis && (
+      <div className={isThreat ? "vbg-custom-response" : "vbg-custom-response vbg-custom-response-plain"}
+        data-risk={risk}>
+        {isThreat && analysis && (
           <>
             <p className="vbg-label">Threat level: {risk?.toLowerCase()}</p>
             <p className="vbg-custom-reason">{verdict(analysis)}</p>
           </>
         )}
         <p className="vbg-custom-message-copy">{message.content}</p>
-        {analysis && <Assessment analysis={analysis} />}
+        {isThreat && analysis && <Assessment analysis={analysis} />}
         {hasVirusTotalReport(message) && (
           <button
             type="button"
@@ -148,6 +151,15 @@ export function Conversation({ messages, busy, hasTitle, onChooseExample, select
       {messages.map((message) => (
         <MessageBubble key={message.id} message={message} reportSelected={message.id === selectedReportId} onShowReport={onShowReport} />
       ))}
+      {busy && (
+        <article className="vbg-custom-message" data-role="assistant" aria-label="Antinious is analyzing your message">
+          <span className="vbg-label vbg-custom-speaker">Antinious</span>
+          <div className="vbg-custom-response">
+            <span className="vbg-custom-loading-dots" aria-hidden="true"><span /><span /><span /></span>
+            <span className="vbg-visually-hidden" role="status">Analyzing your message…</span>
+          </div>
+        </article>
+      )}
     </section>
   );
 }

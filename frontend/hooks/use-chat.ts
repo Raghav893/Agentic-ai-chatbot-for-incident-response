@@ -7,6 +7,10 @@ interface MessageRetry {
   key: string;
 }
 
+function sleep(duration: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, duration));
+}
+
 function chatTitle(content: string) {
   const heading = content.split(/\r?\n/, 1)[0].replace(/^subject:\s*/i, "").trim();
   const characters = Array.from(heading);
@@ -100,7 +104,7 @@ export function useChat() {
       setDraft("");
 
       try {
-        const result = await sendMessage(chatId, content, key);
+        const [result] = await Promise.all([sendMessage(chatId, content, key), sleep(3000)]);
         setMessages((previous) => [
           ...previous.filter(({ id }) => id !== optimistic.id &&
             id !== result.user_message.id && id !== result.assistant_message.id),

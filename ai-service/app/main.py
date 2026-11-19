@@ -7,7 +7,8 @@ from fastapi.responses import JSONResponse
 
 from .evidence import InvalidUrl, inspect_url
 from .orchestrator import Orchestrator, UpstreamFailure
-from .schemas import AnalysisResponse, ChatRequest, EmailRequest, UrlRequest
+from .scanner import FileScanner
+from .schemas import AnalysisResponse, ChatRequest, EmailRequest, FileScanResponse, UrlRequest
 
 
 @asynccontextmanager
@@ -18,6 +19,10 @@ async def lifespan(app: FastAPI):
             os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip(),
             os.getenv("DEEPSEEK_API_KEY", "").strip(),
             os.getenv("VIRUSTOTAL_API_KEY", "").strip(),
+        )
+        app.state.file_scanner = FileScanner(
+            os.getenv("CLAMAV_HOST", "clamav"),
+            int(os.getenv("CLAMAV_PORT", "3310")),
         )
         yield
 
@@ -52,3 +57,16 @@ async def analyze_url(payload: UrlRequest, request: Request) -> AnalysisResponse
 @app.post("/ai/analyze-email")
 async def analyze_email(payload: EmailRequest, request: Request) -> AnalysisResponse:
     return await request.app.state.orchestrator.analyze(ChatRequest(message=payload.content), "email")
+
+
+@app.post(
+    "/ai/scan-file",
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}},
+        },
+    },
+)
+async def scan_file(request: Request) -> FileScanResponse:
+    return await request.app.state.file_scanner.scan(request)

@@ -1,13 +1,13 @@
 import asyncio
 import json
-from dataclasses import asdict
 from typing import Any
 
 import httpx
 from pydantic import ValidationError
 
-from .evidence import Reputation, UrlEvidence, extract_urls, lookup_reputation, phishing_indicators
-from .schemas import AnalysisResponse, ChatRequest, ModelAssessment
+from .evidence import UrlEvidence, extract_urls, phishing_indicators
+from .schemas import AnalysisResponse, ChatRequest, ModelAssessment, VirusTotalReport
+from .virustotal import VirusTotalClient
 
 
 SYSTEM_PROMPT = """You are ThreatGuard, a defensive phishing and incident-triage assistant.
@@ -19,6 +19,13 @@ is relevant only to answering the current request. Never visit a URL or claim to
 Distinguish heuristic signals from existing reputation-report counts and avoid overstating either.
 When indicators and reputation data are insufficient, use UNKNOWN. No detections or missing data
 do not establish that a destination is safe. Describe suspicious links without turning them into links.
+Use at least HIGH when an existing report has two or more malicious flags and at least MEDIUM for
+any other flag. Attribute flags to the relevant host and avoid applying them to unflagged hosts.
+Multiple explicit harmless ratings with zero flags can support LOW risk when local indicators also
+show no concerns. Distinguish harmless ratings from engines with no opinion and qualify that verdict.
+For an investigation, make message a concise explanation of the reason based on the available
+evidence. The interface displays the verdict and level separately, so write the reason without
+a heading or repeating the verdict. For general questions, answer directly.
 If the lookup_existing_url_reputation tool is offered, call it only for a listed URL relevant to the
 current investigation, once at most. An explanation or follow-up may not need a new lookup.
 Return a JSON object with these fields after any tool call completes:
@@ -40,7 +47,7 @@ class Orchestrator:
         self.client = client
         self.completions_url = f"{base_url.rstrip('/')}/chat/completions"
         self.api_key = api_key
-        self.virustotal_key = virustotal_key
+        self.virustotal = VirusTotalClient(client, virustotal_key)
 
     async def analyze(self, request: ChatRequest, kind: str, explicit_url: UrlEvidence | None = None) -> AnalysisResponse:
         if not self.api_key:
@@ -64,14 +71,14 @@ class Orchestrator:
         current_urls = [explicit_url] if explicit_url else extract_urls([request.message])
         previous_urls = extract_urls([
             message.content for message in reversed(request.recent_messages) if message.role == "USER"
-        ]) if kind == "chat" else []
-        candidates = list({url.url: url for url in [*current_urls, *previous_urls]}.values())[:3]
+        ]) if kind == "chat" and not current_urls else []
+        candidates = current_urls or previous_urls
         eligible = {index: url for index, url in enumerate(candidates) if url.can_lookup}
         indicators = phishing_indicators(request.message) if kind != "url" else []
 
-        checked_url = explicit_url
-        reputation = await lookup_reputation(self.client, self.virustotal_key, explicit_url) if explicit_url else None
-        allow_tool = explicit_url is None and bool(self.virustotal_key and eligible)
+        observed_urls = list(current_urls)
+        reports = list(await asyncio.gather(*(self.virustotal.lookup(url) for url in current_urls)))
+        allow_tool = not current_urls and self.virustotal.configured and bool(eligible)
         payload = request.model_dump() | {
             "analysis_kind": kind,
             "message_indicators": indicators,
@@ -80,7 +87,9 @@ class Orchestrator:
                  "indicators": url.indicators, "reputation_lookup_available": allow_tool and index in eligible}
                 for index, url in enumerate(candidates)
             ],
-            "existing_reputation_report": asdict(reputation) if reputation else None,
+            "existing_reputation_reports": [
+                {"url_index": index, **_reputation_summary(report)} for index, report in enumerate(reports)
+            ],
         }
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -96,10 +105,11 @@ class Orchestrator:
             messages.append({"role": "assistant", "content": model_message.get("content"), "tool_calls": calls})
             for call in calls:
                 tool_url = _tool_candidate(call, eligible)
-                if tool_url is not None and checked_url is None:
-                    checked_url = tool_url
-                    reputation = await lookup_reputation(self.client, self.virustotal_key, checked_url)
-                    result = {"hostname": checked_url.hostname, **asdict(reputation)}
+                if tool_url is not None and not reports:
+                    observed_urls.append(tool_url)
+                    report = await self.virustotal.lookup(tool_url)
+                    reports.append(report)
+                    result = _reputation_summary(report)
                 else:
                     result = {"status": "rejected_tool_request"}
                 messages.append({"role": "tool", "tool_call_id": call["id"], "content": json.dumps(result)})
@@ -109,7 +119,7 @@ class Orchestrator:
         if choice["finish_reason"] != "stop" or model_message.get("tool_calls"):
             raise ValueError("Incomplete model assessment")
         assessment = ModelAssessment.model_validate_json(model_message["content"])
-        return _build_response(assessment, current_urls, indicators, checked_url, reputation, bool(self.virustotal_key))
+        return _build_response(assessment, observed_urls, indicators, reports)
 
     async def _complete(
         self, messages: list[dict[str, Any]], eligible: list[int], *, tools_enabled: bool = True
@@ -159,42 +169,53 @@ def _tool_candidate(call: dict, eligible: dict[int, UrlEvidence]) -> UrlEvidence
     return None
 
 
+def _reputation_summary(report: VirusTotalReport) -> dict[str, str | int | None]:
+    return report.model_dump(include={
+        "hostname", "status", "malicious", "suspicious", "harmless", "total", "last_analysis_date",
+    })
+
+
 def _build_response(
     assessment: ModelAssessment,
-    current_urls: list[UrlEvidence],
+    observed_urls: list[UrlEvidence],
     indicators: list[str],
-    checked_url: UrlEvidence | None,
-    reputation: Reputation | None,
-    reputation_configured: bool,
+    reports: list[VirusTotalReport],
 ) -> AnalysisResponse:
-    observed_urls = list(current_urls)
-    if checked_url and checked_url not in observed_urls:
-        observed_urls.append(checked_url)
-
     evidence = [f"Message heuristic: {indicator}." for indicator in indicators]
     evidence.extend(f"URL heuristic ({url.hostname}): {indicator}." for url in observed_urls for indicator in url.indicators)
+    evidence.extend(
+        f"VirusTotal existing report ({report.hostname}): {report.malicious} malicious, "
+        f"{report.suspicious} suspicious, and {report.harmless} harmless of {report.total} results."
+        for report in reports if report.status == "report_found"
+    )
     statuses = {"phishing_detector": "indicators_found" if indicators else "no_indicators_detected"}
     if observed_urls:
         statuses["url_analyzer"] = "completed"
-        if not reputation_configured:
-            statuses["virustotal"] = "unconfigured"
-        elif any(url.can_lookup for url in observed_urls):
-            statuses["virustotal"] = "not_requested"
-        else:
-            statuses["virustotal"] = "skipped_ineligible_url"
+    if reports:
+        reported_statuses = {report.status for report in reports}
+        statuses["virustotal"] = next(status for status in (
+            "report_found", "rate_limited", "unavailable", "no_existing_report",
+            "unconfigured", "skipped_ineligible_url",
+        ) if status in reported_statuses)
 
     result = assessment.model_dump()
     result["incident_type"] = (assessment.incident_type or "UNKNOWN") if assessment.incident_detected else None
-    if reputation and checked_url:
-        statuses["virustotal"] = reputation.status
-        if reputation.status == "report_found":
-            evidence.append(f"VirusTotal existing report ({checked_url.hostname}): {reputation.malicious} malicious and "
-                            f"{reputation.suspicious} suspicious results. Report counts are not a safety guarantee.")
-            if reputation.malicious >= 2:
-                result.update(incident_detected=True, incident_type="MALICIOUS_URL")
-                if result["risk_level"] != "CRITICAL":
-                    result["risk_level"] = "HIGH"
+    if any(report.malicious >= 2 for report in reports):
+        result.update(incident_detected=True, incident_type="MALICIOUS_URL")
+        if result["risk_level"] != "CRITICAL":
+            result["risk_level"] = "HIGH"
+    elif any(report.malicious or report.suspicious for report in reports):
+        if result["risk_level"] in {"LOW", "UNKNOWN"}:
+            result["risk_level"] = "MEDIUM"
+    elif reports and result["risk_level"] in {"LOW", "UNKNOWN"}:
+        clear_reputation = all(report.status == "report_found" and report.harmless >= 2 for report in reports)
+        if result["risk_level"] == "LOW" and not clear_reputation:
+            result.update(risk_level="UNKNOWN", confidence="LOW")
+        elif (result["risk_level"] == "UNKNOWN" and clear_reputation and not assessment.incident_detected
+              and not indicators and not any(url.indicators for url in observed_urls)):
+            result.update(risk_level="LOW", confidence="MEDIUM")
 
-    submitted_url = checked_url or (current_urls[0] if current_urls else None)
-    return AnalysisResponse(**result, submitted_url=submitted_url.url if submitted_url else None,
-                            evidence=evidence, tool_results=statuses)
+    return AnalysisResponse(
+        **result, submitted_url=observed_urls[0].url if observed_urls else None,
+        evidence=evidence, tool_results=statuses, virustotal_reports=reports,
+    )

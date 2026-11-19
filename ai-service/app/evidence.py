@@ -1,11 +1,7 @@
-import base64
 import ipaddress
 import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit
-
-import httpx
-
 
 URL_PATTERN = re.compile(r"https?://[^\s<>\x00-\x20\"'`]+", re.IGNORECASE)
 HOST_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
@@ -41,13 +37,6 @@ class UrlEvidence:
     path: str
     indicators: tuple[str, ...]
     can_lookup: bool
-
-
-@dataclass(frozen=True)
-class Reputation:
-    status: str
-    malicious: int = 0
-    suspicious: int = 0
 
 
 def inspect_url(url: str) -> UrlEvidence:
@@ -121,31 +110,3 @@ def extract_urls(texts: list[str], limit: int = 3) -> list[UrlEvidence]:
 def phishing_indicators(text: str) -> list[str]:
     text_without_links = URL_PATTERN.sub(" ", text)
     return [label for pattern, label in PHISHING_PATTERNS if re.search(pattern, text_without_links, re.IGNORECASE)]
-
-
-async def lookup_reputation(client: httpx.AsyncClient, api_key: str, url: UrlEvidence) -> Reputation:
-    if not url.can_lookup:
-        return Reputation("skipped_ineligible_url")
-    if not api_key:
-        return Reputation("unconfigured")
-
-    identifier = base64.urlsafe_b64encode(url.url.encode()).decode().rstrip("=")
-    try:
-        response = await client.get(
-            f"https://www.virustotal.com/api/v3/urls/{identifier}",
-            headers={"x-apikey": api_key},
-            timeout=4.0,
-        )
-        if response.status_code == 404:
-            return Reputation("no_existing_report")
-        if response.status_code == 429:
-            return Reputation("rate_limited")
-        response.raise_for_status()
-        stats = response.json()["data"]["attributes"]["last_analysis_stats"]
-        malicious, suspicious = stats["malicious"], stats["suspicious"]
-        if any(type(count) is not int or count < 0 for count in (malicious, suspicious)):
-            return Reputation("unavailable")
-    except (httpx.HTTPError, KeyError, TypeError, ValueError):
-        return Reputation("unavailable")
-
-    return Reputation("report_found", malicious, suspicious)

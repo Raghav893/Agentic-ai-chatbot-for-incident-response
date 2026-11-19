@@ -2,7 +2,7 @@
 
 ## Run ThreatGuard locally
 
-One Docker container runs the chat page, Spring Boot, FastAPI, and PostgreSQL. Spring Boot serves the page and stores conversations and analysis in PostgreSQL. FastAPI runs defensive phishing and URL triage with the [`deepseek-flash` API model](https://api-docs.deepseek.com/api/list-models/).
+One Docker container runs Spring Boot, FastAPI, and PostgreSQL. A second container runs ClamAV for local file scanning. During the Docker build, Next.js compiles the Tailwind CSS frontend to static files. Spring Boot serves those files and stores conversations and analysis in PostgreSQL. FastAPI runs defensive phishing and URL triage with the [`deepseek-flash` API model](https://api-docs.deepseek.com/api/list-models/).
 
 With Docker Desktop running, copy the example environment file.
 
@@ -16,13 +16,13 @@ Set `DEEPSEEK_API_KEY` in `.env`. Set `VIRUSTOTAL_API_KEY` if you want to includ
 docker compose up --build --wait
 ```
 
-Open [ThreatGuard](http://127.0.0.1:8080/) to start a conversation or open a saved chat. You can try a sample email or URL, review the assessment, and expand its evidence and next steps. The chat and its API run on port `8080`. FastAPI's test interface runs on port `8000`. Both ports are bound to localhost. PostgreSQL listens inside the container on port `5432`.
+Open [ThreatGuard](http://127.0.0.1:8080/) to start a conversation or open a saved chat. Try a sample email or URL to see the threat level, verdict, and reasons. The VirusTotal panel alongside the chat shows detection counts and the security vendors that flagged a URL. The chat and its API run on port `8080`. FastAPI's test interface runs on port `8000`. Both ports are bound to localhost. PostgreSQL listens inside the container on port `5432`.
 
 For an existing install from the earlier three-container setup, run `docker compose down --remove-orphans` before starting the new container. This stops the old services and retains the database volume for the new container. After editing `.env`, run `docker compose up -d` to reload it.
 
 Open [Spring Boot Swagger UI](http://127.0.0.1:8080/swagger-ui/index.html) to test the chat API or [FastAPI Swagger UI](http://127.0.0.1:8000/docs) to test analysis directly.
 
-Each chat has independent persisted history and bounded context. Message analysis sends the submitted content and relevant context to DeepSeek. VirusTotal lookups use its existing reports API and submitted links are never opened by the application.
+Each chat has independent persisted history and bounded context. Message analysis sends the submitted content and relevant context to DeepSeek. With `VIRUSTOTAL_API_KEY` set, ThreatGuard automatically looks up existing reports for up to three distinct URLs in a message and briefly caches results to conserve quota. Lookups are limited to eligible public URLs. ThreatGuard skips URLs with credentials, query strings, or fragments and never opens the submitted site. The panel distinguishes a report with zero detections from lookups with missing or unavailable results.
 
 ```powershell
 $api = 'http://127.0.0.1:8080/api'
@@ -38,10 +38,36 @@ $result.analysis
 | `GET`, `DELETE` | `/api/chats/{chatId}` | Retrieve or delete a chat |
 | `GET`, `POST` | `/api/chats/{chatId}/messages` | Read history or send a message for analysis |
 | `GET` | `/api/incidents/{id}` | Read a recorded incident |
+| `POST` | `/api/scans/file` | Scan a multipart `file` of up to 20 MiB with local ClamAV |
 
 The message response includes `user_message`, `assistant_message`, `analysis`, and `incident` when an incident is detected. Send an optional UUID in the `Idempotency-Key` header and reuse it with the same message to retry before posting a newer turn, or to retrieve an already completed response. Both list endpoints accept `limit` and `offset`.
 
 FastAPI exposes `POST /ai/analyze-url` with `{"url":"https://example.com"}` and `POST /ai/analyze-email` with `{"content":"..."}`. `docker compose down` stops the services and retains the PostgreSQL data volume.
+
+### Scan a file
+
+In ThreatGuard, select **Scan File** beside the chat composer and choose a download or attachment up to 20 MiB. ClamAV inspects the contents without executing the file. Uploads go only to the local scanner, and the scan report is shown in the current page without being saved to chat history. A scan works without a DeepSeek or VirusTotal key.
+
+Use the harmless EICAR [plain test file](https://secure.eicar.org/eicar.com.txt) and [ZIP test file](https://secure.eicar.org/eicar_com.zip) to check that the scanner reports **Threat detected**. Host antivirus may quarantine these samples when they are downloaded. [EICAR test file details](https://www.eicar.org/download-anti-malware-testfile/)
+
+```powershell
+curl.exe --fail-with-body -F "file=@eicar.com.txt" http://127.0.0.1:8080/api/scans/file
+```
+
+The scan result includes a status, a SHA-256 hash when available, and the matched signature when a threat is detected. **No threats detected** means the scanner found no match. Encrypted content, exceeded scan limits, and an unavailable scanner can produce **Scan incomplete**.
+
+### Frontend development
+
+With Docker Compose running and Node.js 22 or newer installed, run these commands from the project root.
+
+```powershell
+npm --prefix frontend ci
+npm --prefix frontend run dev
+```
+
+Open [the Next.js development server](http://127.0.0.1:3000/) for hot reload. It forwards API and Swagger requests to the backend at `http://127.0.0.1:8080`. Set `THREATGUARD_BACKEND_URL` before starting the development server if your backend is listening elsewhere.
+
+Run `npm --prefix frontend run build` to generate the static export in `frontend/out`. Rebuild with Docker Compose to serve that frontend on port `8080`.
 
 ---
 

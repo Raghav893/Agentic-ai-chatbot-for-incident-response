@@ -2,6 +2,8 @@ services:
   threatguard:
     build: .
     init: true
+    depends_on:
+      - clamav
     stop_grace_period: 30s
     environment:
       POSTGRES_DB: threatguard
@@ -11,6 +13,8 @@ services:
       SPRING_DATASOURCE_USERNAME: threatguard
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-threatguard-local}
       AI_SERVICE_URL: http://127.0.0.1:8000
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
     ports:
@@ -18,6 +22,8 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    tmpfs:
+      - /tmp:size=256m,mode=1777
     healthcheck:
       test: [CMD-SHELL, "curl -fsS --max-time 2 http://127.0.0.1:8080/health && curl -fsS --max-time 2 http://127.0.0.1:8000/health"]
       interval: 3s
@@ -25,5 +31,16 @@ services:
       start_period: 20s
       retries: 15
 
+  clamav:
+    image: clamav/clamav:1.4
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./container/clamd.conf:/etc/clamav/clamd.conf:ro
+      - clamav-data:/var/lib/clamav
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+
 volumes:
   postgres-data:
+  clamav-data:

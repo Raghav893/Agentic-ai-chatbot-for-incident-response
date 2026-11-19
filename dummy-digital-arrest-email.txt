@@ -1,0 +1,22 @@
+SIMULATION ONLY - FICTIONAL SECURITY TRAINING EMAIL
+
+From: Delhi Police Cyber Cell [SIMULATION] <case-notice@example.invalid>
+To: Training Recipient <trainee@example.invalid>
+Subject: [SIMULATION] Urgent digital arrest notice and file-lock threat
+
+Dear Training Recipient,
+
+This fictional notice claims you are under "digital arrest" in case DEMO-001.
+It tells you to act immediately and stay on a video call. It also tells you
+to keep the matter secret from your family and your bank.
+
+The sender threatens to lock your computer files unless you make a bank transfer.
+The sender also asks you to verify your account and share your OTP through
+this fictional case portal:
+
+https://case-review.example.invalid/verify
+
+Fictional deadline: 30 minutes.
+Payment details: [training placeholder].
+
+END OF SIMULATION

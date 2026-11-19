@@ -12,10 +12,16 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 21MB
 
 server:
   error:
     include-message: never
+  tomcat:
+    max-swallow-size: 21MB
   servlet:
     encoding:
       charset: UTF-8
@@ -24,3 +30,4 @@ server:
 ai:
   service-url: ${AI_SERVICE_URL:http://127.0.0.1:8000}
   timeout-seconds: ${AI_SERVICE_TIMEOUT_SECONDS:75}
+  scan-timeout-seconds: ${AI_SCAN_TIMEOUT_SECONDS:70}

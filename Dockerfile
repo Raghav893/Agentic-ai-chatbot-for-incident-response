@@ -1,7 +1,16 @@
+FROM node:22-bookworm-slim AS frontend-build
+WORKDIR /frontend
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY frontend/package.json frontend/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
+COPY frontend ./
+RUN npm run build
+
 FROM maven:3.9-eclipse-temurin-21 AS backend-build
 WORKDIR /build
 COPY backend/pom.xml .
 COPY backend/src ./src
+COPY --from=frontend-build /frontend/out ./src/main/resources/static
 RUN --mount=type=cache,target=/root/.m2 mvn -B -ntp package
 
 FROM postgres:17-trixie AS runtime

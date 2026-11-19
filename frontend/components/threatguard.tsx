@@ -2,13 +2,13 @@
 
 import { useRef, useState } from "react";
 import { useChat } from "../hooks/use-chat";
-import type { ChatSummary, VirusTotalReport } from "../lib/types";
+import { toggleTheme } from "../lib/theme";
+import type { ChatSummary } from "../lib/types";
 import { ChatHeader, ChatSidebar } from "./chat-sidebar";
 import { Composer } from "./composer";
-import { Conversation } from "./conversation";
+import { Conversation, hasVirusTotalReport } from "./conversation";
 import { VirusTotalPanel } from "./virustotal-panel";
 
-const emptyReports: VirusTotalReport[] = [];
 type Panel = "history" | "report";
 
 export function ThreatGuard() {
@@ -18,12 +18,10 @@ export function ThreatGuard() {
   const draftRef = useRef<HTMLTextAreaElement>(null);
   const reportRef = useRef<HTMLElement>(null);
   const reportToggleRef = useRef<HTMLButtonElement>(null);
-  const latestReportMessage = chat.messages.findLast((message) => message.analysis?.virustotal_reports?.length);
-  const reportMessage = chat.messages.find((message) => message.id === reportMessageId) ?? latestReportMessage;
-  const reports = reportMessage?.analysis?.virustotal_reports ?? emptyReports;
-  const lastMessage = chat.messages.at(-1);
-  const reportPending = chat.status?.message === "Analyzing…" && lastMessage?.role === "USER" &&
-    /https?:\/\//i.test(lastMessage.content);
+  const reportMessage = chat.messages.find((message) => message.id === reportMessageId && hasVirusTotalReport(message))
+    ?? chat.messages.findLast(hasVirusTotalReport);
+  const reports = reportMessage?.analysis?.virustotal_reports;
+  const view = panel === "report" && !reports ? "chat" : panel ?? "chat";
 
   function focusDraft() {
     requestAnimationFrame(() => draftRef.current?.focus());
@@ -74,11 +72,16 @@ export function ThreatGuard() {
     <div className="vbg-shell">
       <a className="vbg-skip-link" href="#main">Skip to content</a>
       <header className="vbg-header">
-        <div className="vbg-masthead">
-          <span className="vbg-identity"><span className="vbg-heading-20">ThreatGuard</span></span>
+        <div className="vbg-masthead vbg-custom-masthead">
+          <span className="vbg-identity"><span className="vbg-heading-20">Antinious</span></span>
+          <button type="button" className="vbg-label vbg-custom-quiet-action" onClick={toggleTheme}>
+            <span className="vbg-custom-theme-to-dark">Switch to dark mode</span>
+            <span className="vbg-custom-theme-to-light">Switch to light mode</span>
+          </button>
         </div>
       </header>
-      <main id="main" tabIndex={-1} className="vbg-custom-workspace" data-view={panel ?? "chat"}>
+      <main id="main" tabIndex={-1} className="vbg-custom-workspace" data-view={view}
+        data-has-report={reports ? "" : undefined}>
         <nav className="vbg-custom-navigation" aria-label="Workspace views">
           <button
             type="button"
@@ -89,22 +92,24 @@ export function ThreatGuard() {
           >
             {panel === "history" ? "Close chats" : "Chats"}
           </button>
-          <button
-            type="button"
-            ref={reportToggleRef}
-            className="vbg-label vbg-custom-quiet-action"
-            aria-controls="reputation-panel"
-            aria-expanded={panel === "report"}
-            onClick={() => togglePanel("report")}
-          >
-            {panel === "report" ? "Close report" : "Report"}
-          </button>
+          {reports && (
+            <button
+              type="button"
+              ref={reportToggleRef}
+              className="vbg-label vbg-custom-quiet-action"
+              aria-controls="reputation-panel"
+              aria-expanded={view === "report"}
+              onClick={() => togglePanel("report")}
+            >
+              {view === "report" ? "Close report" : "Report"}
+            </button>
+          )}
         </nav>
         <ChatSidebar
           chats={chat.chats}
           activeChatId={chat.activeChat?.id}
           busy={chat.busy}
-          onNewChat={newChat}
+          onNewChat={newChat} 
           onOpenChat={openChat}
         />
         <section aria-label="Chat" className="vbg-custom-chat">
@@ -126,21 +131,23 @@ export function ThreatGuard() {
             onSubmit={submit}
           />
         </section>
-        <aside
-          id="reputation-panel"
-          ref={reportRef}
-          tabIndex={-1}
-          aria-label="VirusTotal URL reputation"
-          className="vbg-custom-report"
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              setPanel(null);
-              reportToggleRef.current?.focus();
-            }
-          }}
-        >
-          <VirusTotalPanel key={reportMessage?.id ?? "empty"} reports={reports} pending={reportPending} />
-        </aside>
+        {reports && (
+          <aside
+            id="reputation-panel"
+            ref={reportRef}
+            tabIndex={-1}
+            aria-label="VirusTotal URL reputation"
+            className="vbg-custom-report"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setPanel(null);
+                reportToggleRef.current?.focus();
+              }
+            }}
+          >
+            <VirusTotalPanel key={reportMessage?.id} reports={reports} />
+          </aside>
+        )}
       </main>
       <footer className="vbg-footer">
         <a className="vbg-label" href="/swagger-ui/index.html">API documentation <span aria-hidden="true">↗</span></a>

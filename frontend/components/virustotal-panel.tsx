@@ -138,11 +138,12 @@ function initialReport(reports: VirusTotalReport[]) {
     ?? reports[0];
 }
 
-export function VirusTotalPanel({ reports, pending }: { reports: VirusTotalReport[]; pending: boolean }) {
+export function VirusTotalPanel({ reports }: { reports: VirusTotalReport[] }) {
   const selectorId = useId();
   const [selected, setSelected] = useState<VirusTotalReport>();
   const report = selected && reports.includes(selected) ? selected : initialReport(reports);
-  const unavailable = report && report.status !== "report_found" ? reportStates[report.status] : null;
+  if (!report) return null;
+  const unavailable = report.status !== "report_found" ? reportStates[report.status] : null;
 
   return (
     <>
@@ -150,37 +151,25 @@ export function VirusTotalPanel({ reports, pending }: { reports: VirusTotalRepor
         <h2 className="vbg-heading-24">VirusTotal</h2>
       </header>
       <div className="vbg-custom-report-body">
-        <p role="status" className={pending ? "vbg-caption" : "vbg-visually-hidden"}>
-          {pending ? "Checking URL reputation…" : ""}
-        </p>
-        {report ? (
-          <>
-            {reports.length > 1 && (
-              <div className="vbg-custom-field">
-                <label className="vbg-label" htmlFor={selectorId}>Choose URL report</label>
-                <select id={selectorId} value={reports.indexOf(report)}
-                  onChange={(event) => setSelected(reports[Number(event.target.value)])}>
-                  {reports.map((item, index) => <option key={item.url + index} value={index}>{item.url}</option>)}
-                </select>
-              </div>
-            )}
-            <div className="vbg-custom-report-target">
-              <h3 className="vbg-heading-16">{report.hostname}</h3>
-              {report.url !== report.hostname && <p dir="ltr"><code className="vbg-mono vbg-custom-identifier">{report.url}</code></p>}
-            </div>
-            {unavailable ? (
-              <section className="vbg-custom-report-unavailable">
-                <h3 className="vbg-heading-16">{unavailable[0]}</h3>
-                <p className="vbg-caption">{unavailable[1]}</p>
-              </section>
-            ) : <ReportDetails report={report} />}
-          </>
-        ) : !pending && (
-          <section className="vbg-custom-report-unavailable">
-            <h3 className="vbg-heading-16">No URL report yet</h3>
-            <p className="vbg-caption">Send a link to see which security vendors flagged it.</p>
-          </section>
+        {reports.length > 1 && (
+          <div className="vbg-custom-field">
+            <label className="vbg-label" htmlFor={selectorId}>Choose URL report</label>
+            <select id={selectorId} value={reports.indexOf(report)}
+              onChange={(event) => setSelected(reports[Number(event.target.value)])}>
+              {reports.map((item, index) => <option key={item.url + index} value={index}>{item.url}</option>)}
+            </select>
+          </div>
         )}
+        <div className="vbg-custom-report-target">
+          <h3 className="vbg-heading-16">{report.hostname}</h3>
+          {report.url !== report.hostname && <p dir="ltr"><code className="vbg-mono vbg-custom-identifier">{report.url}</code></p>}
+        </div>
+        {unavailable ? (
+          <section className="vbg-custom-report-unavailable">
+            <h3 className="vbg-heading-16">{unavailable[0]}</h3>
+            <p className="vbg-caption">{unavailable[1]}</p>
+          </section>
+        ) : <ReportDetails report={report} />}
       </div>
     </>
   );

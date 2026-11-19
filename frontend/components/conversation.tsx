@@ -13,6 +13,11 @@ const examples = [
   },
 ];
 
+export function hasVirusTotalReport(message: ChatMessage) {
+  return message.role === "ASSISTANT" &&
+    message.analysis?.virustotal_reports?.some((report) => report.status === "report_found");
+}
+
 function verdict(analysis: Analysis) {
   const reports = analysis.virustotal_reports ?? [];
   const flagged = reports.some((report) => report.status === "report_found" && report.malicious + report.suspicious > 0);
@@ -78,7 +83,7 @@ function MessageBubble({ message, reportSelected, onShowReport }: {
 
   return (
     <article className="vbg-custom-message" data-role={isUser ? "user" : "assistant"}>
-      <span className="vbg-label vbg-custom-speaker">{isUser ? "You" : "ThreatGuard"}</span>
+      <span className="vbg-label vbg-custom-speaker">{isUser ? "You" : "Antinious"}</span>
       <div className="vbg-custom-response" data-risk={risk}>
         {analysis && (
           <>
@@ -88,7 +93,7 @@ function MessageBubble({ message, reportSelected, onShowReport }: {
         )}
         <p className="vbg-custom-message-copy">{message.content}</p>
         {analysis && <Assessment analysis={analysis} />}
-        {Boolean(analysis?.virustotal_reports?.length) && (
+        {hasVirusTotalReport(message) && (
           <button
             type="button"
             aria-controls="reputation-panel"
